@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XAUUSD Buy / Sell / Judge</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#0e1117;--card:#171b24;--bd:#262c38;--tx:#e6e8ee;--mu:#8b93a5;--g:#2ecc8f;--r:#ef5a6f;--y:#f0b429}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;padding:12px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}.wide{grid-column:1/-1}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;overflow-x:auto}
+h2{margin:0 0 8px;font-size:13px;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
+.big{font-size:26px;font-weight:700}.mu{color:var(--mu)}.pill{padding:2px 8px;border-radius:99px;font-weight:700}
+.BUY{background:var(--g);color:#000}.SELL{background:var(--r);color:#000}.WAIT{background:var(--y);color:#000}
+input{background:#0e1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:5px;width:90px}
+button{background:#3b82f6;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer}button:disabled{opacity:.5}
+.warn{background:#3a2a05;border:1px solid var(--y);color:var(--y);padding:8px;border-radius:8px;margin-bottom:10px}
+table{border-collapse:collapse;width:100%}td,th{padding:4px 6px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}
+.bar{height:6px;background:var(--bd);border-radius:3px}.bar i{display:block;height:6px;border-radius:3px}
+</style></head><body>
+<div id="warn"></div>
+<div class="grid">
+<div class="card"><h2>Instrument</h2><div class="big" id="px">-</div><div id="meta" class="mu"></div></div>
+<div class="card"><h2>Judge</h2><span id="dec" class="pill WAIT">-</span><div id="why" style="margin-top:8px"></div><div id="exp" class="mu" style="margin-top:6px"></div></div>
+<div class="card"><h2>Trade plan</h2><div id="plan" class="mu">-</div></div>
+<div class="card wide"><h2>M15 chart (calculated structure and zones)</h2><div id="ch" style="height:340px"></div></div>
+<div class="card"><h2>Buy analyst</h2><div id="buy"></div></div>
+<div class="card"><h2>Sell analyst</h2><div id="sell"></div></div>
+<div class="card"><h2>Risk calculator</h2>
+ <p><label>Balance <input id="bal" type="number" value="10000"></label> <label>Ccy <input id="ccy" value="USD" size="3" style="width:50px"></label> <label>Risk % <input id="rp" type="number" step=".1" value="1"></label></p>
+ <p class="mu">Broker specs (from your broker's symbol info; tick value = per lot, in account currency):</p>
+ <p><input id="cs" placeholder="contract size"> <input id="ts" placeholder="tick size"> <input id="tv" placeholder="tick value"> <input id="vs" placeholder="vol step"> <input id="vm" placeholder="vol min"></p>
+ <button id="go">Run analysis</button><div id="risk" style="margin-top:10px"></div></div>
+<div class="card"><h2>Economic news</h2><div id="news" class="mu"></div></div>
+<div class="card wide"><h2>Analysis history</h2><div id="hist"></div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ts=t=>new Date(t*1000).toISOString().replace('T',' ').slice(0,16)+' UTC';
+const chart=LightweightCharts.createChart($('ch'),{layout:{background:{color:'#171b24'},textColor:'#8b93a5'},grid:{vertLines:{color:'#1f2430'},horzLines:{color:'#1f2430'}},timeScale:{timeVisible:true}});
+const ser=chart.addCandlestickSeries({upColor:'#2ecc8f',downColor:'#ef5a6f',borderVisible:false,wickUpColor:'#2ecc8f',wickDownColor:'#ef5a6f'});
+let lines=[];new ResizeObserver(()=>chart.applyOptions({width:$('ch').clientWidth})).observe($('ch'));
+function side(s){const rows=Object.entries(s.cats).map(([k,v])=>`<tr><td>${k}</td><td>${v.pts}/${v.max}</td><td class="mu">${v.why.map(esc).join('<br>')}</td></tr>`).join('');
+ const col=s.side==='buy'?'var(--g)':'var(--r)';
+ return `<b>${esc(s.summary)}</b><div class="bar"><i style="width:${s.total}%;background:${col}"></i></div><p class="mu">Rule alignment, not a probability of profit.</p><table>${rows}</table>`}
+async function load(){const h=await (await fetch('/api/history')).json();
+ $('hist').innerHTML='<table><tr><th>Time</th><th>Result</th><th>Buy</th><th>Sell</th><th>Price</th><th>Source</th></tr>'+h.map(r=>`<tr><td>${ts(r.ts)}</td><td>${esc(r.decision)}</td><td>${r.buy}</td><td>${r.sell}</td><td>${r.price}</td><td class="mu">${esc(r.src)}</td></tr>`).join('')+'</table>'}
+$('go').onclick=async()=>{const b=$('go');b.disabled=true;b.textContent='Analyzing...';
+ const n=id=>$(id).value?+$(id).value:null;
+ try{const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({balance:+$('bal').value,ccy:$('ccy').value,risk_pct:+$('rp').value,spec:{contract_size:n('cs'),tick_size:n('ts'),tick_value:n('tv'),volume_step:n('vs'),volume_min:n('vm')}})});
+  const d=await r.json();if(!r.ok)throw new Error(d.detail);
+  $('warn').innerHTML=d.demo?'<div class="warn">SAMPLE DATA: synthetic candles, assumed spread and no news. Not tradable.</div>':'';
+  $('px').textContent='XAUUSD '+d.price;$('meta').textContent=`${d.source} | last closed M5 ends ${ts(d.updated)} | spread ${d.spread??'unavailable'}`;
+  const j=d.judge;$('dec').textContent=j.decision;$('dec').className='pill '+j.decision;
+  $('why').innerHTML=[...j.overrides.map(x=>'Override: '+x),...j.missing].map(x=>'<div>'+esc(x)+'</div>').join('')||'All rules satisfied';
+  $('exp').innerHTML=d.explain?`<p>${esc(d.explain.buy)}</p><p>${esc(d.explain.sell)}</p><p>${esc(d.explain.judge)}</p>`:'AI explanation off (set ANTHROPIC_API_KEY). Scores above come from code.';
+  const p=j.plan||d.judge.plan;$('plan').innerHTML=p?`Entry trigger: M5 close beyond ${p.entry}<br>SL ${p.sl}<br>TP1 ${p.tp1??'-'}<br>TP2 ${p.tp2??'-'}<br>R:R ${p.rr??'-'}<br>Invalidation: ${esc(p.invalidation)}`:'No plan';
+  $('buy').innerHTML=side(d.buy);$('sell').innerHTML=side(d.sell);
+  const k=d.risk;$('risk').innerHTML=k?`Risk ${k.risk_amount} ${esc(d.ccy)} | stop distance ${k.stop_distance}<br>Lots: <b>${k.lots??'not computed'}</b>${k.actual_risk?' (actual risk '+k.actual_risk+')':''}<div class="mu">${esc(k.note||'')}</div>`:'<span class="mu">No plan to size.</span>';
+  const n2=d.news;$('news').innerHTML=n2.ok?`${esc(n2.source)}, fetched ${ts(n2.at)}<table>${n2.items.slice(0,15).map(e=>`<tr><td>${esc(e.time)}</td><td>${esc(e.country)}</td><td>${esc(e.event)}</td><td>${esc(e.impact)}</td></tr>`).join('')}</table>`:'News unavailable ('+esc(n2.err)+'). The Judge returns WAIT unless news_required is turned off.';
+  ser.setData(d.chart.c.map(c=>({time:c.t,open:c.o,high:c.h,low:c.l,close:c.c})));
+  lines.forEach(l=>ser.removePriceLine(l));lines=[];
+  d.chart.zones.forEach(z=>[z.lo,z.hi].forEach(v=>lines.push(ser.createPriceLine({price:v,color:z.dir>0?'#2ecc8f':'#ef5a6f',lineStyle:2,lineWidth:1,axisLabelVisible:false,title:z.dir>0?'demand':'supply'}))));
+  ser.setMarkers(d.chart.events.map(e=>({time:e.t,position:e.dir>0?'belowBar':'aboveBar',color:e.dir>0?'#2ecc8f':'#ef5a6f',shape:e.dir>0?'arrowUp':'arrowDown',text:e.type})).filter(m=>m.time));
+  chart.timeScale().fitContent();load();
+ }catch(e){$('warn').innerHTML='<div class="warn">'+esc(e.message)+'</div>'}
+ b.disabled=false;b.textContent='Run analysis'};
+load();
+</script></body></html>
